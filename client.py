@@ -1,14 +1,24 @@
-from socket import *
+import socket
 
-serverAddress = 'localhost'
-serverPort = 8900
+HOST = 'localhost'
+PORT = 877
 
-clientSocket = socket(AF_INET, SOCK_STREAM)
-clientSocket.connect((serverAddress, serverPort))
+def start_client():
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.connect((HOST, PORT))
 
-message = input("enter your message:")
-clientSocket.send(message.encode())
+        while True:
+            data = s.recv(2048)
+            if not data:
+                break
 
-modifiedMessage = clientSocket.recv(1024)
-print(modifiedMessage.decode())
-clientSocket.close()
+            decoded = data.decode()
+            print(decoded, end="")  # avoids extra newline
+
+            # Trigger input if the message includes a prompt
+            if "your move" in decoded.lower() or "enter your player name" in decoded.lower():
+                user_input = input()
+                s.send(user_input.encode())
+
+if __name__ == "__main__":
+    start_client()
