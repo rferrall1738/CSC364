@@ -1,22 +1,16 @@
 import socket
 import threading
-import json
 import os
+import json
 from game import TicTacToeGame
-import time
-import signal
-import sys
 
-time.sleep(0.1)
 HOST = 'localhost'
-PORT = 877
+PORT = 8773
 SCOREBOARD_FILE = "scoreboard.json"
 
 waiting_clients = []
-scoreboard_lock = threading.Lock()  # To protect concurrent access to scoreboard
+scoreboard_lock = threading.Lock()
 
-# Scoreboard persistence
-# ---------------------------
 def load_scoreboard():
     if os.path.exists(SCOREBOARD_FILE):
         with open(SCOREBOARD_FILE, "r") as f:
@@ -29,108 +23,96 @@ def save_scoreboard():
 
 scoreboard = load_scoreboard()
 
-# Game logic between two clients
-# ---------------------------
 def handle_client_pair(client1, client2):
     try:
-        # Step 1: Ask both players for names
-        names = []
-        for client in (client1, client2):
-            client.send(b"Enter your player name: ")
-            name = client.recv(1024).decode().strip()
-            names.append(name)
-            with scoreboard_lock:
-                if name not in scoreboard:
-                    scoreboard[name] = 0
+        # Get player names
+        name1 = client1.recv(1024).decode().strip()
+        name2 = client2.recv(1024).decode().strip()
 
-        # Step 2: Initialize game
+        # Assign symbols
+        client1.send(b"You are X\n")
+        client2.send(b"You are O\n")
+
+        names = [name1, name2]
+        symbols = ['X', 'O']
+        clients = [client1, client2]
         game = TicTacToeGame()
-        current = 0  # 0 = client1, 1 = client2
+        current = 0
 
-        # Step 3: Game loop
         while not game.is_over():
             board = game.render()
-            for client in (client1, client2):
-                client.send(f"\n{board}\n".encode())
+            for c in clients:
+                c.send(f"\n{board}\n".encode())
 
-            current_client = [client1, client2][current]
-            current_name = names[current]
+            current_client = clients[current]
 
-            # Prompt for move
-            current_client.send(f"{current_name}, your move (row col): \n".encode())
+            # Indicate turn
+            for i, c in enumerate(clients):
+                c.send(f"TURN {symbols[current]}\n".encode())
+                if i == current:
+                    c.send(f"{names[current]}, your move (row col):\n".encode())
 
-            try:
-                move_data = current_client.recv(1024)
-                if not move_data:
-                    break
-                move = move_data.decode().strip().split()
-                if len(move) != 2 or not all(m.isdigit() for m in move):
-                    current_client.send(b"Invalid move format. Use: row col\n")
-                    continue
+            move_data = current_client.recv(1024)
+            move = move_data.decode().strip().split()
+            if len(move) != 2 or not all(x.isdigit() for x in move):
+                current_client.send(b"Invalid input\n")
+                continue
 
-                row, col = map(int, move)
-                if not game.make_move(current, row, col):
-                    current_client.send(b"Invalid move. Try again.\n")
-                    continue
+            row, col = map(int, move)
+            if not game.make_move(current, row, col):
+                current_client.send(b"Invalid move. Try again.\n")
+                continue
 
-                current = 1 - current  # Swap turn
-            except:
-                break
+            current = 1 - current
 
-        # Step 4: Game finished — render final board
+        # Send final board
         board = game.render()
-        for client in (client1, client2):
-            client.send(f"\n{board}\n".encode())
+        for c in clients:
+            c.send(f"\n{board}\n".encode())
 
-        # Step 5: Announce result
-        result = game.get_winner()
-        if result is None:
-            message = "Game ended in a draw!\n"
-            with scoreboard_lock:
-                scoreboard[names[0]] += 1
-                scoreboard[names[1]] += 1
+        # Announce winner
+        winner = game.get_winner()
+        if winner is not None:
+            message = f"{names[winner]} wins!\n"
         else:
-            winner = names[result]
-            message = f"{winner} wins!\n"
-            with scoreboard_lock:
-                scoreboard[winner] += 2
+            message = "It's a draw!\n"
 
-        save_scoreboard()
+        # Update scoreboard
+        with scoreboard_lock:
+            if winner is not None:
+                scoreboard[names[winner]] = scoreboard.get(names[winner], 0) + 2
+            else:
+                for name in names:
+                    scoreboard[name] = scoreboard.get(name, 0) + 1
+            save_scoreboard()
 
-        # Step 6: Send final result and close sockets
-        for client in (client1, client2):
-            client.send(message.encode())
-            client.close()
+        for c in clients:
+            c.send(message.encode())
+            c.send(b"RESET\n")
+            c.close()
+
+        print("Updated scoreboard:", scoreboard)
 
     except Exception as e:
         print("Game error:", e)
         client1.close()
         client2.close()
 
-def signal_handler(sig, frame):
-    print("\nShutting down server...")
-    save_scoreboard()
-    sys.exit(0)
-
-# Accept clients and pair them
-# ---------------------------
 def wait_for_clients():
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.bind((HOST, PORT))
     server.listen()
-    print(f"Server listening on {HOST}:{PORT}")
+    print(f"Server running on {HOST}:{PORT}")
 
     while True:
-        client_socket, addr = server.accept()
+        client, addr = server.accept()
         print(f"Connected: {addr}")
-        waiting_clients.append(client_socket)
+        waiting_clients.append(client)
 
         if len(waiting_clients) >= 2:
             c1 = waiting_clients.pop(0)
             c2 = waiting_clients.pop(0)
-            thread = threading.Thread(target=handle_client_pair, args=(c1, c2))
-            thread.start()
+            threading.Thread(target=handle_client_pair, args=(c1, c2), daemon=True).start()
 
 if __name__ == "__main__":
-    signal.signal(signal.SIGINT, signal_handler)  # Handles Ctrl+C
     wait_for_clients()
