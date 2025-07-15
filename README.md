@@ -15,7 +15,7 @@
 - Games can be played from terminal, GUI optional
 
 **To Run Tic-Tac-Toe**
-- To run in terminal:
+- Run in terminal:
 - python server.py
 
 - In two separate terminal windows run:
