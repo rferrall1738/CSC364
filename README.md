@@ -14,6 +14,12 @@
 
 - Games can be played from terminal, GUI optional
 
+- To run in terminal:
+- python server.py
+
+- In two separate terminal windows run:
+- python client.py
+
 
 
 
