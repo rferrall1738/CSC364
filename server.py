@@ -40,30 +40,43 @@ def handle_client_pair(client1, client2):
         current = 0
 
         while not game.is_over():
-            board = game.render()
-            for c in clients:
-                c.send(f"\n{board}\n".encode())
+            try:
+                board = game.render()
+                for c in clients:
 
-            current_client = clients[current]
+                    c.send(f"\n{board}\n".encode())
 
-            # Indicate turn
-            for i, c in enumerate(clients):
-                c.send(f"TURN {symbols[current]}\n".encode())
-                if i == current:
-                    c.send(f"{names[current]}, your move (row col):\n".encode())
+                current_client = clients[current]
+                opposing_client = clients[1 - current]
 
-            move_data = current_client.recv(1024)
-            move = move_data.decode().strip().split()
-            if len(move) != 2 or not all(x.isdigit() for x in move):
-                current_client.send(b"Invalid input\n")
-                continue
+                # Indicate turn
+                for i, c in enumerate(clients):
+                    c.send(f"TURN {symbols[current]}\n".encode())
+                    if i == current:
+                        c.send(f"{names[current]}, your move (row col):\n".encode())
 
-            row, col = map(int, move)
-            if not game.make_move(current, row, col):
-                current_client.send(b"Invalid move. Try again.\n")
-                continue
+                move_data = current_client.recv(1024)
+                move = move_data.decode().strip().split()
+                if len(move) != 2 or not all(x.isdigit() for x in move):
+                    current_client.send(b"Invalid input\n")
+                    continue
 
-            current = 1 - current
+                row, col = map(int, move)
+                if not game.make_move(current, row, col):
+                    current_client.send(b"Invalid move. Try again.\n")
+                    continue
+
+                current = 1 - current
+            except(ConnectionResetError, ConnectionAbortedError, socket.error) as e:
+                print(f"Player {names[current]} left the game: {e}\n")
+                opposing_client.send(f"Player {names[current]} left the game. Easy win this time.\n".encode())
+                with scoreboard_lock:
+                    scoreboard[names[1-current]] = scoreboard.get(names[1-current], 0) + 2
+                    save_scoreboard()
+                opposing_client.close()
+                current_client.close()
+                return
+
 
         # Send final board
         board = game.render()

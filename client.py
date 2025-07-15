@@ -54,11 +54,15 @@ class TClient:
             try:
                 data = self.s.recv(2048)
                 if not data:
+                    messagebox.showinfo("Disconnected", "Connection lost or failed.")
+                    self.master.quit()
                     break
                 message = data.decode()
                 self.handle_message(message)
             except Exception as e:
                 print("Connection error:", e)
+                messagebox.showerror("ERROR", "Connection lost or failed.")
+                self.master.quit()
                 break
 
     #handles messages
